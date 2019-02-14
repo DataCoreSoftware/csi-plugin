@@ -61,7 +61,7 @@ DataCoreArrayName
   * One of the servers in the server group that you want the Kubernetes nodes to connect to.
   
 DeployAsPod
-  * Should be set to false for clusters that have single or multiple masters. If you want to try the plugin on a single node you can set this too true.
+  * Should be set to false for clusters that have single or multiple masters. If you want to try the plugin on a single node you can set this to true.
   
 Namespace
   * The Kubernetes namespace to deploy to. 
