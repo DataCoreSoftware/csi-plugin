@@ -84,7 +84,7 @@ spec:
             - name: socket-dir
               mountPath: /var/lib/csi/sockets/pluginproxy/
         - name: csi-ssy-plugin
-          image: datacoresoftware/ssy-csi:beta
+          image: datacoresoftware/ssy-csi:1.01
           imagePullPolicy: Always
           securityContext:
             privileged: true
@@ -415,7 +415,7 @@ spec:
             capabilities:
               add: ["SYS_ADMIN"]
             allowPrivilegeEscalation: true
-          image: datacoresoftware/ssy-csi:beta
+          image: datacoresoftware/ssy-csi:1.01
           args :
             - "--endpoint=$(CSI_ENDPOINT)"
             - "--restapi=$(SSY_REST)"
