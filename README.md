@@ -7,6 +7,9 @@ In order to use the CSI plugin, you must have the following in place already:
   * Kubernetes 1.15 or later
 * Each worker node that will need DataCore volumes must have the iSCSI initiator already installed, configured and connected to the DataCore storage servers that will be provisioning persistent storage volumes.
 
+## Note
+This version of the CSI plugin does not support the snapshot and resize interfaces. For this reason, after deploying the plugin, you will notice that 2 containers in the controller pod will not run. 
+
 ## Preparation
 On each node in the cluster, ensure that an iSCSI connection has been established with the DataCore SDS servers. In the example below, an iSCSI connection is being established with a DataCore SDS iSCSI target at IP address 100.0.0.1
 ```
