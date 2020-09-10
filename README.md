@@ -50,8 +50,8 @@ data:
   username: {USERNAME}
   password: {PASSWORD}
 ```
-Replace `{USERNAME}` with the base64 encoded value of the username to connect to the SANsymphony server group. For example, if the username is administrator, then `{USERNAME}` would be replaced by the output of `echo administrator | base64`.
-Replace `{PASSWORD}` with the password for the account used to connect to the SANsymphony server group. For example, if the password is `password`, then `{PASSWORD}` would be replaced by the output of `echo password | base64`.
+Replace `{USERNAME}` with the base64 encoded value of the username to connect to the SANsymphony server group. For example, if the username is administrator, then `{USERNAME}` would be replaced by the output of `echo -n administrator | base64`.
+Replace `{PASSWORD}` with the password for the account used to connect to the SANsymphony server group. For example, if the password is `password`, then `{PASSWORD}` would be replaced by the output of `echo -n password | base64`.
 Save this file and apply it with `kubectl`.
 
 Apply the installer manifest
