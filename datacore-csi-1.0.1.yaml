@@ -30,7 +30,6 @@ spec:
         app: csi-ssy-controller
         role: csi-ssy
     spec:
-      priorityClassName: system-cluster-critical
       serviceAccount: csi-ssy-controller-sa
       imagePullSecrets:
         - name: ssy-csi-docker-credentials
