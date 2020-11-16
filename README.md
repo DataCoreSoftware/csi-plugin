@@ -4,7 +4,7 @@
 In order to use the CSI plugin, you must have the following in place already:
   * DataCore SANsymphony 10.0 PSP7 Update 2 or later
   * DataCore REST Server 1.08 or later
-  * Kubernetes 1.15 or later
+  * Kubernetes 1.17 or later
 * Each worker node that will need DataCore volumes must have the iSCSI initiator already installed, configured and connected to the DataCore storage servers that will be provisioning persistent storage volumes.
 
 ## Note
