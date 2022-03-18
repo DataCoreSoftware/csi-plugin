@@ -1,0 +1,577 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: disk.csi.ssy.datacore.com
+provisioner: com.datacore.ssy.csi
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+
+---
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: csi-ssy-snapclass
+  annotations:
+    snapshot.storage.kubernetes.io/is-default-class: "true"
+driver: com.datacore.ssy.csi
+deletionPolicy: Delete
+
+---
+
+##############################################
+###########                       ############
+###########   Controller plugin   ############
+###########                       ############
+##############################################
+
+kind: StatefulSet
+apiVersion: apps/v1
+metadata:
+  name: csi-ssy-controller
+  namespace: datacore
+spec:
+  serviceName: "csi-ssy"
+  selector:
+    matchLabels:
+      app: csi-ssy-controller
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: csi-ssy-controller
+        role: csi-ssy
+    spec:
+      serviceAccount: csi-ssy-controller-sa
+      imagePullSecrets:
+        - name: ssy-csi-docker-credentials
+      containers:
+        - name: csi-snapshotter
+          image: k8s.gcr.io/sig-storage/csi-snapshotter:v4.2.1
+          args:
+            - "--csi-address=$(ADDRESS)"
+            - "--v=5"
+          env:
+            - name: ADDRESS
+              value: /var/lib/csi/sockets/pluginproxy/csi.sock
+          imagePullPolicy: "IfNotPresent"
+          volumeMounts:
+             - name: socket-dir
+               mountPath: /var/lib/csi/sockets/pluginproxy/
+        - name: csi-provisioner
+          image: k8s.gcr.io/sig-storage/csi-provisioner:v3.0.0
+          args:
+            - "--csi-address=$(ADDRESS)"
+            - "--v=5"
+          env:
+            - name: ADDRESS
+              value: /var/lib/csi/sockets/pluginproxy/csi.sock
+          imagePullPolicy: "IfNotPresent"
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /var/lib/csi/sockets/pluginproxy/
+        - name: csi-attacher
+          image: k8s.gcr.io/sig-storage/csi-attacher:v3.3.0
+          args:
+            - "--v=5"      
+            - "--csi-address=$(ADDRESS)"
+          env:
+            - name: ADDRESS
+              value: /var/lib/csi/sockets/pluginproxy/csi.sock
+          imagePullPolicy: "IfNotPresent"
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /var/lib/csi/sockets/pluginproxy/
+        - name: csi-ssy-plugin
+          image: datacoresoftware/ssy-csi:v1.2.0
+          imagePullPolicy: "Always"
+          securityContext:
+            privileged: true
+            capabilities:
+              add:
+              - SYS_ADMIN
+              - SYS_RAWIO
+          args :
+            - "--endpoint=$(CSI_ENDPOINT)"
+            - "--restapi=$(SSY_REST)"
+            - "--symphony=$(SSY_SERVER)"
+            - "--username=$(SSY_USERNAME)"
+            - "--password=$(SSY_PASSWORD)"
+            - "--nodename=$(SSY_NODENAME)"
+            - "--template=$(SSY_TEMPLATE)"
+            - "--logfile=0"
+          env:
+            - name: CSI_ENDPOINT
+              value: unix:///var/lib/csi/sockets/pluginproxy/csi.sock
+            - name: SSY_REST
+              valueFrom:
+                configMapKeyRef:
+                    name: csi-ssy-config
+                    key: rest-server
+            - name: SSY_SERVER
+              valueFrom:
+                configMapKeyRef:
+                    name: csi-ssy-config
+                    key: storage-server
+            - name: SSY_TEMPLATE
+              valueFrom:
+                configMapKeyRef:
+                    name: csi-ssy-config
+                    key: vd-template
+            - name: SSY_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: csi-ssy-secret
+                  key: username
+            - name: SSY_PASSWORD
+              valueFrom:
+                 secretKeyRef:
+                   name: csi-ssy-secret
+                   key: password
+            - name: SSY_NODENAME
+              valueFrom:
+                fieldRef:
+                    apiVersion: v1
+                    fieldPath: spec.nodeName
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /var/lib/csi/sockets/pluginproxy/
+            - name: mountpoint-dir
+              mountPath: /var/lib/kubelet/pods
+              mountPropagation: Bidirectional
+            - name: iscsi-dir
+              mountPath: /etc/iscsi
+            - name: dev-dir
+              mountPath: /dev
+            - name: plugins-dir
+              mountPath: /var/lib/kubelet
+              mountPropagation: Bidirectional
+            - name: usr-sbin-dir
+              mountPath: /usr/sbin
+            - name: sbin-dir
+              mountPath: /sbin
+            - name: ssy-csi-log-dir
+              mountPath: /var/log/ssy-csi-log
+      volumes:
+        - name: socket-dir
+          hostPath:
+            path: /var/lib/csi/sockets/pluginproxy/
+            type: DirectoryOrCreate
+        - name: iscsi-dir
+          hostPath:
+            path: /etc/iscsi
+            type: Directory
+        - name: mountpoint-dir
+          hostPath:
+            path: /var/lib/kubelet/pods
+            type: DirectoryOrCreate
+        - name: dev-dir
+          hostPath:
+            path: /dev
+            type: Directory
+        - name: plugins-dir
+          hostPath:
+            path: /var/lib/kubelet
+            type: Directory
+        - name: usr-sbin-dir
+          hostPath:
+            path: /usr/sbin
+            type: Directory
+        - name: sbin-dir
+          hostPath:
+            path: /sbin
+            type: Directory
+        - name: ssy-csi-log-dir
+          hostPath:
+            path: /var/log/ssy-csi
+            type: DirectoryOrCreate
+---
+
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: csi-ssy-controller-sa
+  namespace: datacore
+
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: csi-ssy-provisioner-role
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "update"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["csinodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["list", "watch", "create", "update", "patch"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshots"]
+    verbs: ["get", "list"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshotcontents"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+
+---
+
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: csi-ssy-provisioner-binding
+subjects:
+  - kind: ServiceAccount
+    name: csi-ssy-controller-sa
+    namespace: datacore
+roleRef:
+  kind: ClusterRole
+  name: csi-ssy-provisioner-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# Attacher must be able to work with PVs, nodes and VolumeAttachments
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: csi-ssy-attacher-role
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["csinodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["volumeattachments"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["volumeattachments/status"]
+    verbs: ["patch"]
+
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: csi-ssy-attacher-binding
+subjects:
+  - kind: ServiceAccount
+    name: csi-ssy-controller-sa
+    namespace: datacore
+roleRef:
+  kind: ClusterRole
+  name: csi-ssy-attacher-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: csi-ssy-snapshotter-role
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "update"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshotclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshotcontents"]
+    verbs: ["create", "get", "list", "watch", "update", "delete"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshots"]
+    verbs: ["get", "list", "watch", "update"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshots/status"]
+    verbs: ["update"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshotcontents/status"]
+    verbs: ["update"]
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["create", "list", "watch", "delete", "get", "update"]
+
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: csi-ssy-snapshotter-binding
+subjects:
+  - kind: ServiceAccount
+    name: csi-ssy-controller-sa
+    namespace: datacore
+roleRef:
+  kind: ClusterRole
+  name: csi-ssy-snapshotter-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+
+# Resizer must be able to work with PVCs, PVs, SCs.
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: csi-ssy-resizer-role
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims/status"]
+    verbs: ["update", "patch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["list", "watch", "create", "update", "patch"]
+
+---
+
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: csi-ssy-resizer-binding
+subjects:
+  - kind: ServiceAccount
+    name: csi-ssy-controller-sa
+    namespace: datacore
+roleRef:
+  kind: ClusterRole
+  name: csi-ssy-resizer-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/instance: com.datacore.ssy.csi
+    app.kubernetes.io/component: snapshotter-cluster-role
+  name: csi-ssy-snapshotter-role
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: external-snapshotter-runner
+subjects:
+- kind: ServiceAccount
+  name: csi-ssy-controller-sa
+  namespace: datacore
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/instance: com.datacore.ssy.csi
+    app.kubernetes.io/component: snapshotter-role
+  name: csi-ssy-snapshotter-role
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: external-snapshotter-leaderelection
+subjects:
+- kind: ServiceAccount
+  name: csi-ssy-controller-sa
+---
+
+########################################
+###########                 ############
+###########   Node plugin   ############
+###########                 ############
+########################################
+
+kind: DaemonSet
+apiVersion: apps/v1
+metadata:
+  name: csi-ssy-node
+  namespace: datacore
+spec:
+  selector:
+    matchLabels:
+      app: csi-ssy-node
+  template:
+    metadata:
+      labels:
+        app: csi-ssy-node
+        role: csi-ssy
+    spec:
+      priorityClassName: system-node-critical
+      serviceAccount: csi-ssy-node-sa
+      hostNetwork: true
+      imagePullSecrets:
+        - name: ssy-csi-docker-credentials
+      containers:
+        - name: csi-node-driver-registrar
+          image: k8s.gcr.io/sig-storage/csi-node-driver-registrar:v2.3.0
+          args:
+            - "--v=5"
+            - "--csi-address=$(ADDRESS)"
+            - "--kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)"
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "rm -rf /registration/com.datacore.ssy.csi /registration/com.datacore.ssy.csi-reg.sock"]
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+            - name: DRIVER_REG_SOCK_PATH
+              value: /var/lib/kubelet/plugins/com.datacore.ssy.csi/csi.sock
+            - name: KUBE_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: plugin-dir
+              mountPath: /csi/
+            - name: registration-dir
+              mountPath: /registration/
+        - name: csi-ssy-plugin
+          securityContext:
+            privileged: true
+            capabilities:
+              add: ["SYS_ADMIN"]
+            allowPrivilegeEscalation: true
+          image: datacoresoftware/ssy-csi:v1.2.0
+          args :
+            - "--endpoint=$(CSI_ENDPOINT)"
+            - "--restapi=$(SSY_REST)"
+            - "--symphony=$(SSY_SERVER)"
+            - "--username=$(SSY_USERNAME)"
+            - "--password=$(SSY_PASSWORD)"
+            - "--nodename=$(SSY_NODENAME)"
+            - "--template=$(SSY_TEMPLATE)"
+            - "--logfile=0"
+          env:
+            - name: CSI_ENDPOINT
+              value: unix:///csi/csi.sock
+            - name: SSY_REST
+              valueFrom:
+                configMapKeyRef:
+                    name: csi-ssy-config
+                    key: rest-server
+            - name: SSY_SERVER
+              valueFrom:
+                configMapKeyRef:
+                    name: csi-ssy-config
+                    key: storage-server
+            - name: SSY_TEMPLATE
+              valueFrom:
+                configMapKeyRef:
+                    name: csi-ssy-config
+                    key: rest-server
+            - name: SSY_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: csi-ssy-secret
+                  key: username
+            - name: SSY_PASSWORD
+              valueFrom:
+                 secretKeyRef:
+                   name: csi-ssy-secret
+                   key: password
+            - name: SSY_NODENAME
+              valueFrom:
+                fieldRef:
+                    apiVersion: v1
+                    fieldPath: spec.nodeName
+          imagePullPolicy: "Always"
+          volumeMounts:
+            - name: plugin-dir
+              mountPath: /csi
+            - name: pods-mount-dir
+              mountPath: /var/lib/kubelet
+              # needed so that any mounts setup inside this container are
+              # propagated back to the host machine.
+              mountPropagation: "Bidirectional"
+            - name: device-dir
+              mountPath: /dev
+            - name: iscsi-dir
+              mountPath: /etc/iscsi
+            - name: ssy-csi-log-dir
+              mountPath: /var/log/ssy-csi-log
+      volumes:
+        - name: registration-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins_registry/
+            type: DirectoryOrCreate
+        - name: plugin-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins/com.datacore.ssy.csi
+            type: DirectoryOrCreate
+        - name: pods-mount-dir
+          hostPath:
+            path: /var/lib/kubelet
+            type: Directory
+        - name: device-dir
+          hostPath:
+            path: /dev
+        - name: iscsi-dir
+          hostPath:
+            path: /etc/iscsi
+            type: Directory
+        - name: ssy-csi-log-dir
+          hostPath:
+            path: /var/log/ssy-csi
+            type: DirectoryOrCreate
+---
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: csi-ssy-node-sa
+  namespace: datacore
+
+---
+
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: csi-ssy-node-driver-registrar-role
+  namespace: datacore
+rules:
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+
+---
+
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: csi-ssy-node-driver-registrar-binding
+subjects:
+  - kind: ServiceAccount
+    name: csi-ssy-node-sa
+    namespace: datacore
+roleRef:
+  kind: ClusterRole
+  name: csi-ssy-node-driver-registrar-role
+  apiGroup: rbac.authorization.k8s.io

@@ -69,7 +69,7 @@ Replace `{PASSWORD}` with the password for the account used to connect to the SA
 Save this file and apply it with `kubectl`.
 
 Apply the installer manifest
-`kubectl apply -f https://raw.githubusercontent.com/DataCoreSoftware/csi-plugin/master/datacore-csi-1.2.0.yaml`
+`kubectl apply -f https://raw.githubusercontent.com/DataCoreSoftware/csi-plugin/master/datacore-csi.yaml`
 
 Check that the plugin has been deployed.
 `kubectl get pods -n datacore`
