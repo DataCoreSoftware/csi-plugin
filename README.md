@@ -88,7 +88,7 @@ spec:
   - ReadWriteOnce
   resources:
     requests:
-      storage: 100Gi
+      storage: 2Gi
   storageClassName: disk.csi.ssy.datacore.com
 ```
 ## Examples: Creating VolumeSnapshot
